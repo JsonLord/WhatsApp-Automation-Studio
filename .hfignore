@@ -28,7 +28,3 @@ RELEASES.md
 whatsapp_msg_automation.py
 presets.py
 deploy.py
-app_output*.log
-test_gradio.py
-test_gradio.log
-verification/
