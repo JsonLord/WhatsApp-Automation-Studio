@@ -4,6 +4,7 @@ import base64
 import requests
 import threading
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 import gradio as gr
 from wa_logic import WhatsAppAutomation
 from presets import PresetManager
@@ -14,6 +15,7 @@ wa_lock = threading.Lock()
 
 REGISTER_ENDPOINT = "https://auxteam-plandex-backup.hf.space/register"
 
+# Logic for API and Gradio
 def perform_login():
     global wa
     with wa_lock:
@@ -54,7 +56,7 @@ def send_wa_message(message):
         success = wa.send_message(message)
         return "Message sent successfully!" if success else "Failed to send message."
 
-# Gradio UI
+# Gradio UI Implementation
 pm = PresetManager()
 presets = pm.get_presets()
 preset_names = [p["name"] for p in presets]
@@ -106,29 +108,30 @@ with gr.Blocks(title="WhatsApp Automation Studio", theme=gr.themes.Soft()) as de
         with gr.Tab("📋 Logs"):
             gr.TextArea(label="Activity Logs", value="Welcome to WhatsApp Automation Studio!", interactive=False, lines=15)
 
-# Create FastAPI app and mount Gradio
-api_app = FastAPI()
+# Add FastAPI endpoints to the Gradio app
+app = demo.app
 
-@api_app.get("/health")
+@app.get("/health")
 def health():
     return {"status": "ready"}
 
-@api_app.get("/api-docs")
+@app.get("/api-docs")
 def api_docs():
     return {
         "endpoints": [
             {"path": "/health", "method": "GET", "purpose": "Health check"},
-            {"path": "/login", "method": "POST", "purpose": "Start login"},
-            {"path": "/send", "method": "POST", "purpose": "Send message"}
+            {"path": "/api-docs", "method": "GET", "purpose": "API documentation"},
+            {"path": "/login", "method": "POST", "purpose": "Start login and get QR code"},
+            {"path": "/send", "method": "POST", "purpose": "Send message via API"}
         ]
     }
 
-@api_app.post("/login")
+@app.post("/login")
 def api_login():
     qr, msg = perform_login()
     return {"qr_code": qr, "message": msg}
 
-@api_app.post("/send")
+@app.post("/send")
 async def api_send(request: Request):
     try:
         data = await request.json()
@@ -136,8 +139,6 @@ async def api_send(request: Request):
         data = {}
     res = send_wa_message(data.get("message"))
     return {"message": res}
-
-app = gr.mount_gradio_app(api_app, demo, path="/")
 
 if __name__ == "__main__":
     import uvicorn

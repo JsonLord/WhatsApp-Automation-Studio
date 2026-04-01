@@ -6,9 +6,9 @@ webdriver-manager==4.0.1
 pyautogui==0.9.54
 pillow==10.1.0
 requests==2.31.0
-fastapi==0.112.2
+fastapi==0.115.5
 uvicorn==0.32.1
-gradio==4.36.1
+gradio==5.9.1
 gunicorn==25.3.0
 python-multipart==0.0.20
-huggingface_hub==0.23.0
+huggingface_hub==0.26.2
