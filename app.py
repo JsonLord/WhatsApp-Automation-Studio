@@ -1,121 +1,145 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from wa_logic import WhatsAppAutomation
-import threading
-import time
-import requests
 import os
+import time
+import base64
+import requests
+import threading
+from fastapi import FastAPI, Request, HTTPException
+import gradio as gr
+from wa_logic import WhatsAppAutomation
+from presets import PresetManager
 
-app = Flask(__name__)
-CORS(app)
-
-# Global automation instance
+# Global automation instance and lock
 wa = WhatsAppAutomation()
 wa_lock = threading.Lock()
 
 REGISTER_ENDPOINT = "https://auxteam-plandex-backup.hf.space/register"
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status": "ready"}), 200
-
-@app.route('/api-docs', methods=['GET'])
-def api_docs():
-    docs = {
-        "endpoints": [
-            {
-                "path": "/health",
-                "method": "GET",
-                "purpose": "Returns HTTP 200 when the app is ready."
-            },
-            {
-                "path": "/api-docs",
-                "method": "GET",
-                "purpose": "Documents all available API endpoints."
-            },
-            {
-                "path": "/login",
-                "method": "POST",
-                "purpose": "Starts the Selenium browser in headless mode and captures the QR code.",
-                "response": {
-                    "status": "success/error",
-                    "qr_code": "base64_encoded_qr_code (if success)"
-                }
-            },
-            {
-                "path": "/check-login",
-                "method": "GET",
-                "purpose": "Checks if the WhatsApp session is logged in."
-            },
-            {
-                "path": "/send",
-                "method": "POST",
-                "purpose": "Sends a message to the currently active chat.",
-                "request": {
-                    "message": "The message text to send"
-                }
-            }
-        ]
-    }
-    return jsonify(docs), 200
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
+def perform_login():
     global wa
     with wa_lock:
         if wa.driver:
             wa.close()
-
         success = wa.initialize_driver(headless=True)
         if not success:
-            return jsonify({"status": "error", "message": "Failed to initialize driver"}), 500
+            return None, "Failed to initialize driver"
 
         wa.navigate_to_whatsapp()
+        time.sleep(5)  # Wait for page load
         qr_code = wa.get_qr_code_screenshot()
 
         if qr_code:
-            # Forward QR code to register endpoint
             try:
                 requests.post(REGISTER_ENDPOINT, json={"qr_code": qr_code}, timeout=5)
-            except Exception as e:
-                print(f"Error forwarding QR code: {str(e)}")
-
-            return jsonify({"status": "success", "qr_code": qr_code}), 200
+            except:
+                pass
+            return f"data:image/png;base64,{qr_code}", "QR code captured. Scan now!"
         else:
-            return jsonify({"status": "error", "message": "Failed to capture QR code"}), 500
+            return None, "Failed to capture QR code"
 
-@app.route('/check-login', methods=['GET'])
-def check_login():
+def check_wa_login():
     global wa
     with wa_lock:
         if not wa.driver:
-            return jsonify({"status": "error", "message": "Driver not initialized"}), 400
-
+            return False, "Browser not started"
         logged_in = wa.check_login_status(timeout=5)
-        return jsonify({"status": "success", "logged_in": logged_in}), 200
+        return logged_in, "Logged in" if logged_in else "Not logged in"
 
-@app.route('/send', methods=['GET', 'POST'])
-def send():
+def send_wa_message(message):
     global wa
-    if request.method == 'POST':
-        data = request.json or {}
-        message = data.get('message')
-    else:
-        message = request.args.get('message')
-
     if not message:
-        return jsonify({"status": "error", "message": "No message provided"}), 400
-
+        return "No message provided"
     with wa_lock:
         if not wa.driver:
-            return jsonify({"status": "error", "message": "Driver not initialized. Please login first."}), 400
-
+            return "Browser not started. Login first."
         success = wa.send_message(message)
-        if success:
-            return jsonify({"status": "success", "message": "Message sent"}), 200
-        else:
-            return jsonify({"status": "error", "message": "Failed to send message"}), 500
+        return "Message sent successfully!" if success else "Failed to send message."
 
-if __name__ == '__main__':
+# Gradio UI
+pm = PresetManager()
+presets = pm.get_presets()
+preset_names = [p["name"] for p in presets]
+
+with gr.Blocks(title="WhatsApp Automation Studio", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🚀 WhatsApp Automation Studio")
+
+    with gr.Tabs():
+        with gr.Tab("📱 Login"):
+            with gr.Row():
+                with gr.Column():
+                    login_btn = gr.Button("Login to WhatsApp", variant="primary")
+                    status_output = gr.Label("Status: Ready")
+                    check_btn = gr.Button("Check Login Status")
+                with gr.Column():
+                    qr_display = gr.Image(label="QR Code Scan")
+
+            login_btn.click(perform_login, outputs=[qr_display, status_output])
+            check_btn.click(lambda: check_wa_login()[1], outputs=[status_output])
+
+        with gr.Tab("📝 Message Composer"):
+            with gr.Row():
+                with gr.Column(scale=2):
+                    msg_input = gr.Textbox(label="Message Editor", placeholder="Type your message here...", lines=10)
+                    send_btn = gr.Button("▶ Start Sending", variant="primary")
+                    send_status = gr.Markdown("")
+                with gr.Column(scale=1):
+                    preset_dropdown = gr.Dropdown(choices=preset_names, label="✨ Message Presets")
+                    load_preset_btn = gr.Button("📥 Load Preset")
+
+                    def load_preset(name):
+                        preset = pm.get_preset_by_name(name)
+                        if preset:
+                            if "messages" in preset:
+                                return "\n---\n".join(preset["messages"])
+                            return preset.get("message", "")
+                        return ""
+
+                    load_preset_btn.click(load_preset, inputs=preset_dropdown, outputs=msg_input)
+
+            send_btn.click(send_wa_message, inputs=msg_input, outputs=send_status)
+
+        with gr.Tab("⚙️ Settings"):
+            gr.Checkbox(label="Simulate Real Typing", value=True)
+            gr.Slider(minimum=0.001, maximum=0.1, value=0.01, label="Typing Speed (sec/char)")
+            gr.Slider(minimum=1.0, maximum=10.0, value=3.0, label="Delay Max (seconds)")
+            gr.Checkbox(label="🌙 Dark Mode", value=True)
+
+        with gr.Tab("📋 Logs"):
+            gr.TextArea(label="Activity Logs", value="Welcome to WhatsApp Automation Studio!", interactive=False, lines=15)
+
+# Create FastAPI app and mount Gradio
+api_app = FastAPI()
+
+@api_app.get("/health")
+def health():
+    return {"status": "ready"}
+
+@api_app.get("/api-docs")
+def api_docs():
+    return {
+        "endpoints": [
+            {"path": "/health", "method": "GET", "purpose": "Health check"},
+            {"path": "/login", "method": "POST", "purpose": "Start login"},
+            {"path": "/send", "method": "POST", "purpose": "Send message"}
+        ]
+    }
+
+@api_app.post("/login")
+def api_login():
+    qr, msg = perform_login()
+    return {"qr_code": qr, "message": msg}
+
+@api_app.post("/send")
+async def api_send(request: Request):
+    try:
+        data = await request.json()
+    except:
+        data = {}
+    res = send_wa_message(data.get("message"))
+    return {"message": res}
+
+app = gr.mount_gradio_app(api_app, demo, path="/")
+
+if __name__ == "__main__":
+    import uvicorn
     port = int(os.environ.get("PORT", 7860))
-    app.run(host='0.0.0.0', port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)

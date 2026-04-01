@@ -22,7 +22,7 @@ def upload():
         folder_path=".",
         repo_id=REPO_ID,
         repo_type=REPO_TYPE,
-        ignore_patterns=[".git/*", ".github/*", "__pycache__/*", "assets/*", "*.ico", "*.png", "CONTRIBUTING.md", "LICENSE", "RELEASES.md", "whatsapp_msg_automation.py", "presets.py", "deploy.py", "Agent.md"]
+        ignore_patterns=[".git/*", ".github/*", "__pycache__/*", "assets/*", "*.ico", "*.png", "CONTRIBUTING.md", "LICENSE", "RELEASES.md", "whatsapp_msg_automation.py", "deploy.py"]
     )
     print("Upload complete!")
 

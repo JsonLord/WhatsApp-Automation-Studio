@@ -47,4 +47,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 7860
 
 # Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:7860", "--timeout", "120", "app:app"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
